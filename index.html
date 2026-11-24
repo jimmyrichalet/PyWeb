@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>PyPad</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PyPad">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#1f9d55">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<style>
+/*
+VOICE   calme et outillé, comme un cahier de TP : rien ne distrait du code
+IDEA    un éditeur de poche : la page de code est l'objet, la console sa marge
+PICTURE l'éditeur lui-même, plein écran, coloré comme dans l'app native
+COLOUR  blanc / encre GitHub, vert d'exécution #1f9d55 ; nuit #0d1117
+TYPE    ui-monospace pour le code, system-ui pour l'interface
+LAYOUT  paysage : scripts | code | console ; portrait : code au-dessus de la console
+*/
+:root{
+  --bg:#ffffff;--panel:#f6f8fa;--side:#eef1f4;--line:#d8dee4;--ink:#1f2328;--muted:#656d76;
+  --green:#1f9d55;--green-ink:#ffffff;--red:#cf222e;--sel:#1f9d5522;
+  --kw:#cf222e;--bi:#8250df;--st:#0a3069;--cm:#6e7781;--nu:#0550ae;--df:#953800;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --fs:17px;--app-h:100vh;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1117;--panel:#161b22;--side:#10151c;--line:#30363d;--ink:#e6edf3;--muted:#8b949e;
+  --green:#2ea043;--red:#ff7b72;--sel:#2ea04333;
+  --kw:#ff7b72;--bi:#d2a8ff;--st:#a5d6ff;--cm:#8b949e;--nu:#79c0ff;--df:#ffa657;
+}}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+  font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit}
+.app{position:fixed;left:0;right:0;top:0;height:var(--app-h);display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+
+/* barre du haut */
+.top{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--bg)}
+.top h1{flex:1;margin:0;font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.ib{min-width:44px;height:44px;border:0;border-radius:12px;background:transparent;display:inline-grid;place-items:center;cursor:pointer;padding:0 10px}
+.ib:hover{background:var(--panel)}
+.ib:focus-visible,.key:focus-visible,.btn:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.ib svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.run{height:44px;border:0;border-radius:12px;padding:0 18px;display:inline-flex;align-items:center;gap:8px;
+  background:var(--green);color:var(--green-ink);font-weight:600;cursor:pointer;white-space:nowrap}
+.run svg{width:16px;height:16px;fill:currentColor}
+.run.stop{background:var(--red)}
+.run:active{transform:scale(.97)}
+
+/* zones */
+.body{display:grid;grid-template-columns:240px minmax(0,1fr) minmax(0,42%);min-height:0}
+.body.noside{grid-template-columns:0 minmax(0,1fr) minmax(0,42%)}
+.side{background:var(--side);border-right:1px solid var(--line);overflow:auto;display:flex;flex-direction:column}
+.noside .side{visibility:hidden;border:0}
+.side-head{display:flex;align-items:center;gap:4px;padding:10px 8px 6px 14px}
+.side-head b{flex:1;font-size:15px}
+.list{list-style:none;margin:0;padding:4px 8px 16px}
+.list button{width:100%;text-align:left;border:0;background:transparent;border-radius:10px;padding:11px 12px;
+  display:flex;gap:10px;align-items:center;cursor:pointer;font-size:15px}
+.list button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list button[aria-current="true"]{background:var(--green);color:var(--green-ink)}
+.list svg{flex:none;width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7}
+.side-foot{margin-top:auto;padding:10px 12px;font-size:13px;color:var(--muted)}
+
+.editor{display:grid;grid-template-rows:minmax(0,1fr) auto auto;border-right:1px solid var(--line);min-height:0}
+.code{position:relative;overflow:auto;-webkit-overflow-scrolling:touch}
+.stack{display:grid;min-height:100%}
+.stack>*{grid-area:1/1;margin:0;padding:16px 16px 40vh;font:var(--fs)/1.5 var(--mono);tab-size:4;
+  white-space:pre-wrap;overflow-wrap:anywhere;border:0;letter-spacing:0}
+#hl{pointer-events:none;color:var(--ink)}
+#src{resize:none;overflow:hidden;background:transparent;color:transparent;caret-color:var(--green);outline:none;width:100%;height:100%}
+#src::selection{background:var(--sel);color:transparent}
+.t-kw{color:var(--kw)}.t-bi{color:var(--bi)}.t-st{color:var(--st)}.t-cm{color:var(--cm);font-style:italic}.t-nu{color:var(--nu)}.t-df{color:var(--df)}
+.keys{display:flex;gap:6px;overflow-x:auto;padding:6px 8px;border-top:1px solid var(--line);background:var(--panel);scrollbar-width:none}
+.keys::-webkit-scrollbar{display:none}
+.key{flex:none;min-width:44px;height:40px;border:1px solid var(--line);border-radius:9px;background:var(--bg);
+  font:500 17px var(--mono);cursor:pointer;padding:0 10px;touch-action:manipulation}
+.key:active{background:var(--sel)}
+.status{display:flex;justify-content:space-between;gap:12px;padding:4px 14px;font-size:13px;color:var(--muted);
+  font-variant-numeric:tabular-nums;background:var(--bg);border-top:1px solid var(--line)}
+
+.console{display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--panel);min-height:0}
+.c-head{display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;height:48px;border-bottom:1px solid var(--line)}
+.dot{width:9px;height:9px;border-radius:50%;background:orange;flex:none}
+.dot.ready{background:var(--green)}.dot.running{background:#2f81f7}.dot.failed{background:var(--red)}
+.c-head b{flex:1;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.out{overflow:auto;padding:12px 14px;font:14px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;-webkit-overflow-scrolling:touch}
+.out>*{display:block}
+.out .err{color:var(--red);cursor:pointer}
+.out .info{color:var(--muted);font-size:12.5px}
+.out .ans{color:var(--green);font-weight:700;display:inline}
+.out img{display:block;max-width:100%;margin:8px 0;border-radius:8px;background:#fff}
+.out .empty{color:var(--muted)}
+.inbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;border-top:1px solid var(--line);background:var(--bg)}
+.inbar label{font:15px var(--mono);max-width:100%}
+.inbar input{flex:1 1 160px;height:44px;border:1px solid var(--line);border-radius:10px;padding:0 12px;
+  font:16px var(--mono);background:var(--bg);color:var(--ink)}
+.inbar input:focus{outline:2px solid var(--green);outline-offset:0}
+.btn{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--bg);padding:0 14px;cursor:pointer}
+.btn.primary{background:var(--green);color:var(--green-ink);border-color:var(--green);font-weight:600}
+.btn.danger{color:var(--red)}
+
+dialog{border:0;border-radius:16px;padding:20px;width:min(360px,90vw);background:var(--bg);color:var(--ink);box-shadow:0 20px 60px #0005}
+dialog::backdrop{background:#0006}
+dialog h2{margin:0 0 12px;font-size:18px}
+dialog input{width:100%;height:44px;border:1px solid var(--line);border-radius:10px;padding:0 12px;font:16px system-ui;background:var(--bg);color:var(--ink)}
+dialog p{margin:0 0 4px;color:var(--muted)}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.menu{position:absolute;right:12px;top:58px;z-index:5;background:var(--bg);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 12px 40px #0003;padding:6px;min-width:230px}
+.menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:11px 12px;border-radius:9px;cursor:pointer;font-size:15px}
+.menu button:hover{background:var(--panel)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+[hidden]{display:none!important}
+
+/* portrait / écrans étroits */
+@media (max-aspect-ratio:1/1), (max-width:820px){
+  .body,.body.noside{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,40%)}
+  .side{position:absolute;z-index:4;top:61px;bottom:0;left:0;width:min(300px,80vw);box-shadow:8px 0 30px #0003}
+  .noside .side{display:none}
+  .editor{border-right:0;border-bottom:1px solid var(--line)}
+}
+@media (max-width:600px){ .run span{display:none} .run{padding:0 14px} }
+@media (prefers-reduced-motion:reduce){ .run:active{transform:none} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="ib" id="toggleSide" aria-label="Afficher ou masquer les scripts" title="Scripts">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+    </button>
+    <h1 id="title">PyPad</h1>
+    <button class="ib" id="menuBtn" aria-label="Options" aria-haspopup="true">
+      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+    </button>
+    <button class="run" id="runBtn" aria-keyshortcuts="Meta+Enter Control+Enter">
+      <svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg><span>Exécuter</span>
+    </button>
+  </header>
+
+  <div class="body" id="body">
+    <aside class="side" id="side">
+      <div class="side-head">
+        <b>Scripts</b>
+        <button class="ib" id="importBtn" aria-label="Importer des fichiers .py" title="Importer">
+          <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        </button>
+        <button class="ib" id="newBtn" aria-label="Nouveau script" title="Nouveau script">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <ul class="list" id="list"></ul>
+      <div class="side-foot">Les scripts sont enregistrés sur cet appareil.</div>
+    </aside>
+
+    <section class="editor">
+      <div class="code" id="code">
+        <div class="stack">
+          <pre id="hl" aria-hidden="true"></pre>
+          <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+            aria-label="Code Python" wrap="soft"></textarea>
+        </div>
+      </div>
+      <div class="keys" id="keys" aria-label="Symboles"></div>
+      <div class="status"><span id="pos">Ligne 1, col. 1</span><span id="count">1 ligne · Python</span></div>
+    </section>
+
+    <section class="console" aria-label="Console">
+      <div class="c-head">
+        <span class="dot" id="dot"></span><b id="state">Chargement de Python…</b>
+        <button class="ib" id="copyBtn" aria-label="Copier la console" title="Copier">
+          <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+        </button>
+        <button class="ib" id="clearBtn" aria-label="Effacer la console" title="Effacer">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+        </button>
+      </div>
+      <div class="out" id="out" aria-live="polite"><span class="empty">La sortie de ton programme s'affichera ici.</span></div>
+      <form class="inbar" id="inbar" hidden>
+        <label for="answer" id="promptLbl"></label>
+        <input id="answer" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="Ta réponse">
+        <button type="button" class="btn" id="cancelIn">Annuler</button>
+        <button class="btn primary">Envoyer</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="menu" id="menu" hidden role="menu">
+    <button data-act="bigger" role="menuitem">Agrandir le texte</button>
+    <button data-act="smaller" role="menuitem">Réduire le texte</button>
+    <hr>
+    <button data-act="rename" role="menuitem">Renommer le script</button>
+    <button data-act="duplicate" role="menuitem">Dupliquer le script</button>
+    <button data-act="export" role="menuitem">Télécharger le fichier .py</button>
+    <button data-act="delete" role="menuitem" style="color:var(--red)">Supprimer le script</button>
+    <hr>
+    <button data-act="restart" role="menuitem">Redémarrer Python</button>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h2 id="dlgTitle"></h2>
+    <p id="dlgText"></p>
+    <input id="dlgInput" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="row">
+      <button class="btn" value="cancel" formnovalidate>Annuler</button>
+      <button class="btn primary" id="dlgOk" value="ok">OK</button>
+    </div>
+  </form>
+</dialog>
+<input type="file" id="file" accept=".py,.txt,text/x-python,text/plain" multiple hidden>
+
+<script>
+"use strict";
+{
+const $ = (s) => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const PYODIDE = params.get("pyodide") === "local"
+  ? new URL("pyodide/", location.href).href
+  : "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
+
+/* ---------- Exemples ---------- */
+const SAMPLES = [
+  ["1 - Bienvenue", `# Bienvenue dans PyPad !
+# Touche ▶ Exécuter (ou ⌘ Entrée avec un clavier) pour lancer ce programme.
+
+def saluer(nom):
+    return f"Bonjour {nom} !"
+
+print(saluer("iPad"))
+
+carres = [n * n for n in range(1, 11)]
+print("Les 10 premiers carrés :", carres)
+print("Leur somme :", sum(carres))
+`],
+  ["2 - Saisie", `# input() ouvre un champ de saisie sous la console.
+
+prenom = input("Comment t'appelles-tu ? ")
+annee = int(input("Ton année de naissance ? "))
+
+age = 2026 - annee
+print(f"Enchanté {prenom}, tu as environ {age} ans.")
+`],
+  ["3 - Jeu du nombre", `import random
+
+secret = random.randint(1, 100)
+essais = 0
+print("J'ai choisi un nombre entre 1 et 100.")
+
+while True:
+    essais += 1
+    proposition = int(input("Ta proposition : "))
+    if proposition < secret:
+        print("C'est plus !")
+    elif proposition > secret:
+        print("C'est moins !")
+    else:
+        print(f"Bravo, trouvé en {essais} essais !")
+        break
+`],
+  ["4 - Graphique", `# numpy et matplotlib se téléchargent automatiquement au premier import.
+import numpy as np
+import matplotlib.pyplot as plt
+
+x = np.linspace(0, 4 * np.pi, 400)
+plt.figure(figsize=(7, 4))
+plt.plot(x, np.sin(x), label="sin(x)")
+plt.plot(x, np.cos(x), label="cos(x)")
+plt.title("Sinus et cosinus")
+plt.legend()
+plt.grid(alpha=0.3)
+plt.show()
+
+print("Moyenne de sin(x) :", round(float(np.sin(x).mean()), 4))
+`],
+];
+
+/* ---------- Stockage (sur l'appareil) ---------- */
+const KEY = "pypad.v1";
+let db = { scripts: [], current: null, fontSize: 17, side: true };
+function load() {
+  try { const raw = localStorage.getItem(KEY); if (raw) db = Object.assign(db, JSON.parse(raw)); } catch (e) {}
+  if (!db.scripts.length) {
+    db.scripts = SAMPLES.map(([name, code], i) => ({ id: "s" + i + Date.now(), name, code }));
+    db.current = db.scripts[0].id;
+  }
+  if (!db.scripts.some((s) => s.id === db.current)) db.current = db.scripts[0] && db.scripts[0].id;
+}
+let saveTimer = null;
+function save(now) {
+  clearTimeout(saveTimer);
+  const write = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} };
+  if (now) write(); else saveTimer = setTimeout(write, 300);
+}
+const cur = () => db.scripts.find((s) => s.id === db.current);
+function uniqueName(base) {
+  base = (base || "").trim().replace(/\.py$/i, "").replace(/[\/:]/g, "-") || "Sans titre";
+  let name = base, n = 2;
+  while (db.scripts.some((s) => s.name === name)) name = base + " " + n++;
+  return name;
+}
+
+/* ---------- Coloration syntaxique ---------- */
+const KW = "False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|match|case";
+const BI = "print|input|len|range|int|float|str|list|dict|set|tuple|bool|abs|min|max|sum|sorted|reversed|enumerate|zip|map|filter|open|type|isinstance|round|any|all|super|self|object|Exception|ValueError|TypeError|KeyError|IndexError|ZeroDivisionError|help|dir|ord|chr|format|iter|next|divmod|pow|repr|__name__";
+const TOK = new RegExp(
+  "(#[^\\n]*)" +
+  "|((?:\\b[rRbBuUfF]{1,2})?(?:\"\"\"[\\s\\S]*?(?:\"\"\"|$)|'''[\\s\\S]*?(?:'''|$)|\"(?:\\\\.|[^\"\\\\\\n])*\"?|'(?:\\\\.|[^'\\\\\\n])*'?))" +
+  "|(\\b0[xXbBoO][0-9a-fA-F_]+\\b|\\b\\d[\\d_]*(?:\\.[\\d_]*)?(?:[eE][+-]?\\d+)?j?\\b)" +
+  "|\\b(def|class)(\\s+)([A-Za-z_]\\w*)" +
+  "|\\b(" + KW + ")\\b" +
+  "|\\b(" + BI + ")\\b", "g");
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function highlight(code) {
+  let html = "", last = 0;
+  code.replace(TOK, (m, cm, st, nu, dk, sp, dn, kw, bi, off) => {
+    html += esc(code.slice(last, off));
+    if (cm) html += `<span class="t-cm">${esc(cm)}</span>`;
+    else if (st) html += `<span class="t-st">${esc(st)}</span>`;
+    else if (nu) html += `<span class="t-nu">${esc(nu)}</span>`;
+    else if (dk) html += `<span class="t-kw">${dk}</span>${sp}<span class="t-df">${esc(dn)}</span>`;
+    else if (kw) html += `<span class="t-kw">${kw}</span>`;
+    else if (bi) html += `<span class="t-bi">${bi}</span>`;
+    else html += esc(m);
+    last = off + m.length;
+    return m;
+  });
+  return html + esc(code.slice(last)) + "\n";
+}
+
+/* ---------- Éditeur ---------- */
+const src = $("#src"), hl = $("#hl"), codeBox = $("#code");
+function refresh() {
+  hl.innerHTML = highlight(src.value);
+  const n = src.value.split("\n").length;
+  $("#count").textContent = n + (n > 1 ? " lignes" : " ligne") + " · Python";
+}
+function updatePos() {
+  const before = src.value.slice(0, src.selectionStart);
+  const line = before.split("\n").length;
+  const col = before.length - before.lastIndexOf("\n");
+  $("#pos").textContent = `Ligne ${line}, col. ${col}`;
+}
+function insert(text) {
+  src.focus();
+  if (!document.execCommand || !document.execCommand("insertText", false, text)) {
+    src.setRangeText(text, src.selectionStart, src.selectionEnd, "end");
+    onEdit();
+  }
+}
+function onEdit() {
+  // Guillemets « intelligents » du clavier iPad → guillemets droits.
+  if (/[“”‘’]/.test(src.value)) {
+    const a = src.selectionStart, b = src.selectionEnd;
+    src.value = src.value.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    src.setSelectionRange(a, b);
+  }
+  refresh();
+  updatePos();
+  const s = cur();
+  if (s) { s.code = src.value; save(); }
+}
+src.addEventListener("input", onEdit);
+["keyup", "click", "select"].forEach((ev) => src.addEventListener(ev, updatePos));
+document.addEventListener("selectionchange", () => { if (document.activeElement === src) updatePos(); });
+
+src.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "Enter" || e.key === "r" || e.key === "R")) { e.preventDefault(); runOrStop(); return; }
+  if (e.key === "Tab" && !e.metaKey && !e.altKey) { e.preventDefault(); insert("    "); return; }
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    const v = src.value, p = src.selectionStart;
+    const line = v.slice(v.lastIndexOf("\n", p - 1) + 1, p);
+    let indent = line.match(/^[ \t]*/)[0];
+    const t = line.trim();
+    if (t.endsWith(":") && !t.startsWith("#")) indent += "    ";
+    else if (/^(return|pass|break|continue|raise)\b/.test(t) && indent.length >= 4) indent = indent.slice(4);
+    insert("\n" + indent);
+    return;
+  }
+  if (e.key === "Backspace" && src.selectionStart === src.selectionEnd) {
+    const v = src.value, p = src.selectionStart;
+    const before = v.slice(v.lastIndexOf("\n", p - 1) + 1, p);
+    if (before.length >= 4 && before.length % 4 === 0 && /^ +$/.test(before)) {
+      e.preventDefault();
+      src.setSelectionRange(p - 4, p);
+      insert("");
+    }
+  }
+});
+
+/* Touches de symboles */
+const KEYS = [["⇥", "    ", 0], ["( )", "()", 1], ["[ ]", "[]", 1], ["{ }", "{}", 1], [":", ":", 0], ["=", "=", 0],
+  ['" "', '""', 1], ["' '", "''", 1], ["#", "#", 0], ["_", "_", 0], [",", ",", 0], [".", ".", 0],
+  ["+", "+", 0], ["-", "-", 0], ["*", "*", 0], ["/", "/", 0], ["<", "<", 0], [">", ">", 0], ["!", "!", 0],
+  ["←", null, -1], ["→", null, 1], ["↶", "undo", 0]];
+$("#keys").innerHTML = KEYS.map(([l], i) => `<button class="key" type="button" data-k="${i}" aria-label="${esc(l)}">${esc(l)}</button>`).join("");
+$("#keys").addEventListener("pointerdown", (e) => { if (e.target.closest(".key")) e.preventDefault(); });
+$("#keys").addEventListener("click", (e) => {
+  const b = e.target.closest(".key"); if (!b) return;
+  const [, text, n] = KEYS[+b.dataset.k];
+  src.focus();
+  if (text === null) {
+    const p = Math.max(0, Math.min(src.value.length, src.selectionStart + n));
+    src.setSelectionRange(p, p); updatePos(); return;
+  }
+  if (text === "undo") { document.execCommand("undo"); return; }
+  insert(text);
+  if (n > 0) { const p = src.selectionStart - n; src.setSelectionRange(p, p); }
+  updatePos();
+});
+
+function goToLine(n) {
+  const lines = src.value.split("\n");
+  n = Math.max(1, Math.min(n, lines.length));
+  const start = lines.slice(0, n - 1).reduce((a, l) => a + l.length + 1, 0);
+  src.focus({ preventScroll: true });
+  src.setSelectionRange(start, start + lines[n - 1].length);
+  const lh = parseFloat(getComputedStyle(hl).lineHeight) || 24;
+  codeBox.scrollTop = Math.max(0, (n - 4) * lh);
+  updatePos();
+}
+
+/* ---------- Liste des scripts ---------- */
+const DOC = '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
+function renderList() {
+  $("#list").innerHTML = db.scripts
+    .slice().sort((a, b) => a.name.localeCompare(b.name, "fr", { numeric: true }))
+    .map((s) => `<li><button data-id="${esc(s.id)}" aria-current="${s.id === db.current}">${DOC}<span>${esc(s.name)}</span></button></li>`)
+    .join("");
+}
+function open(id) {
+  db.current = id; save();
+  const s = cur();
+  src.value = s ? s.code : "";
+  $("#title").textContent = s ? s.name : "PyPad";
+  document.title = s ? s.name + " — PyPad" : "PyPad";
+  refresh(); updatePos(); renderList();
+  codeBox.scrollTop = 0;
+  if (narrow()) setSide(false);
+}
+$("#list").addEventListener("click", (e) => { const b = e.target.closest("button[data-id]"); if (b) open(b.dataset.id); });
+
+const narrow = () => matchMedia("(max-aspect-ratio:1/1), (max-width:820px)").matches;
+function setSide(on) { db.side = on; $("#body").classList.toggle("noside", !on); save(); }
+$("#toggleSide").addEventListener("click", () => setSide($("#body").classList.contains("noside")));
+
+/* Boîte de dialogue maison (prompt/confirm ne sont pas fiables partout) */
+function ask(title, text, value, okLabel, withInput = true) {
+  const d = $("#dlg");
+  $("#dlgTitle").textContent = title;
+  $("#dlgText").textContent = text || "";
+  $("#dlgText").hidden = !text;
+  $("#dlgInput").hidden = !withInput;
+  $("#dlgInput").value = value || "";
+  $("#dlgOk").textContent = okLabel || "OK";
+  return new Promise((resolve) => {
+    d.onclose = () => resolve(d.returnValue === "ok" ? (withInput ? $("#dlgInput").value : true) : null);
+    d.returnValue = "";
+    d.showModal();
+    if (withInput) setTimeout(() => { $("#dlgInput").focus(); $("#dlgInput").select(); }, 50);
+  });
+}
+$("#dlgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#dlg").close("ok"); } });
+
+async function newScript() {
+  const name = await ask("Nouveau script", "", "", "Créer");
+  if (name === null) return;
+  const s = { id: "s" + Date.now(), name: uniqueName(name), code: "# Mon programme\n\nprint(\"Bonjour !\")\n" };
+  db.scripts.push(s); save(true); open(s.id);
+  src.focus();
+}
+$("#newBtn").addEventListener("click", newScript);
+$("#importBtn").addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", async (e) => {
+  let lastId = null;
+  for (const f of e.target.files) {
+    const s = { id: "s" + Date.now() + Math.random().toString(36).slice(2, 6), name: uniqueName(f.name), code: await f.text() };
+    db.scripts.push(s); lastId = s.id;
+  }
+  e.target.value = "";
+  if (lastId) { save(true); open(lastId); }
+});
+
+/* Menu */
+const menu = $("#menu");
+$("#menuBtn").addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
+document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true; });
+function setFont(px) { db.fontSize = Math.max(11, Math.min(32, px)); document.documentElement.style.setProperty("--fs", db.fontSize + "px"); save(); }
+menu.addEventListener("click", async (e) => {
+  const act = e.target.dataset.act; if (!act) return;
+  menu.hidden = true;
+  const s = cur();
+  if (act === "bigger") setFont(db.fontSize + 1);
+  if (act === "smaller") setFont(db.fontSize - 1);
+  if (act === "restart") restart();
+  if (!s) return;
+  if (act === "rename") {
+    const name = await ask("Renommer le script", "", s.name, "Renommer");
+    if (name !== null && name.trim() && name.trim() !== s.name) { s.name = uniqueName(name); save(true); open(s.id); }
+  }
+  if (act === "duplicate") {
+    const c = { id: "s" + Date.now(), name: uniqueName(s.name + " copie"), code: s.code };
+    db.scripts.push(c); save(true); open(c.id);
+  }
+  if (act === "export") {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([s.code], { type: "text/x-python" }));
+    a.download = s.name + ".py";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  if (act === "delete") {
+    const ok = await ask("Supprimer « " + s.name + " » ?", "Le script sera effacé de cet appareil.", "", "Supprimer", false);
+    if (ok) {
+      db.scripts = db.scripts.filter((x) => x.id !== s.id);
+      if (!db.scripts.length) db.scripts.push({ id: "s" + Date.now(), name: "Sans titre", code: "" });
+      save(true); open(db.scripts[0].id);
+    }
+  }
+});
+
+/* ---------- Console ---------- */
+const out = $("#out");
+let lastNode = null, lastKind = null;
+function clearConsole() { out.textContent = ""; lastNode = null; lastKind = null; }
+function stick() { out.scrollTop = out.scrollHeight; }
+function write(kind, text) {
+  if (!text) return;
+  if (out.querySelector(".empty")) clearConsole();
+  if (lastNode && lastKind === kind && (kind === "std" || kind === "err") && lastNode.textContent.length < 20000) {
+    lastNode.textContent += text;
+  } else {
+    const block = kind === "info";
+    lastNode = document.createElement(block ? "div" : "span");
+    lastNode.className = kind;
+    if (kind === "err") lastNode.title = "Toucher pour aller à la ligne de l'erreur";
+    lastNode.textContent = block ? text.replace(/\n$/, "") : text;
+    out.appendChild(lastNode);
+    lastKind = kind;
+  }
+  while (out.childNodes.length > 1500) out.removeChild(out.firstChild);
+  stick();
+}
+out.addEventListener("click", (e) => {
+  const err = e.target.closest(".err"); if (!err) return;
+  const s = cur(); if (!s) return;
+  const re = new RegExp('File "' + s.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + '\\.py", line (\\d+)', "g");
+  let m, n = null;
+  while ((m = re.exec(err.textContent))) n = +m[1];
+  if (n) goToLine(n);
+});
+$("#clearBtn").addEventListener("click", () => { clearConsole(); out.innerHTML = '<span class="empty">La sortie de ton programme s\'affichera ici.</span>'; });
+$("#copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(out.innerText); flash("Console copiée"); } catch (e) { flash("Copie impossible"); }
+});
+function flash(msg) { const st = $("#state"), old = st.textContent; st.textContent = msg; setTimeout(() => { if (st.textContent === msg) setState(state); }, 1400); }
+
+/* ---------- Moteur Python ---------- */
+let worker = null, state = "loading", version = "", pending = null, inputReq = null, startedAt = 0, produced = false, inputOK = false;
+const INPUT_URL = new URL("__pypad_input__", location.href).href;
+
+function setState(s) {
+  state = s;
+  const dot = $("#dot"); dot.className = "dot " + s;
+  $("#state").textContent = {
+    loading: "Chargement de Python…",
+    ready: "Python " + version + " prêt",
+    running: inputReq ? "En attente de saisie" : "Exécution…",
+    failed: "Python indisponible",
+  }[s];
+  const r = $("#runBtn");
+  r.classList.toggle("stop", s === "running");
+  r.querySelector("span").textContent = s === "running" ? "Arrêter" : "Exécuter";
+  r.querySelector("svg").innerHTML = s === "running" ? '<rect x="3" y="3" width="10" height="10" rx="1.5"/>' : '<path d="M4 2.5v11l9-5.5z"/>';
+}
+
+function boot() {
+  worker = new Worker("worker.js");
+  worker.onmessage = onMessage;
+  worker.onerror = (e) => { write("err", "Erreur interne : " + (e.message || e) + "\n"); };
+  worker.postMessage({ type: "init", indexURL: PYODIDE, inputURL: inputOK ? INPUT_URL : null });
+  setState("loading");
+}
+
+function onMessage(e) {
+  const m = e.data;
+  switch (m.type) {
+    case "stdout": produced = true; write("std", m.text); break;
+    case "stderr": produced = true; write("err", m.text); break;
+    case "status": write("info", m.text + "\n"); break;
+    case "image": {
+      produced = true;
+      const img = new Image(); img.alt = "Graphique produit par le programme"; img.src = "data:image/png;base64," + m.text;
+      if (out.querySelector(".empty")) clearConsole();
+      out.appendChild(img); lastNode = null; img.onload = stick; break;
+    }
+    case "input": showInput(m.id, m.text); break;
+    case "ready":
+      version = m.text; setState("ready");
+      if (pending) { const p = pending; pending = null; run(p.code, p.name); }
+      break;
+    case "done": {
+      setState("ready");
+      if (!produced) write("info", "(le programme n'a rien affiché : as-tu bien appelé ta fonction ?)\n");
+      const s = ((performance.now() - startedAt) / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      write("info", "✓ Terminé en " + s + " s\n");
+      break;
+    }
+    case "fatal": setState("failed"); write("err", m.text + "\n"); break;
+  }
+}
+
+function run(code, name) {
+  if (state === "running") return;
+  if (state === "loading") {
+    pending = { code, name };
+    clearConsole(); write("info", "Python se charge… « " + name + " » démarrera tout seul.\n");
+    return;
+  }
+  if (state === "failed") { pending = { code, name }; restart(); return; }
+  clearConsole();
+  write("info", "▶ " + name + "\n");
+  produced = false;
+  startedAt = performance.now();
+  setState("running");
+  worker.postMessage({ type: "run", code, name });
+}
+
+function stop() {
+  pending = null;
+  if (inputReq) replyInput(null, true);
+  worker.terminate();
+  write("err", "\n■ Programme interrompu.\n");
+  write("info", "Redémarrage de Python…\n");
+  boot();
+}
+function restart() {
+  if (inputReq) replyInput(null, true);
+  if (worker) worker.terminate();
+  clearConsole(); write("info", "Redémarrage de Python…\n");
+  boot();
+}
+
+function runOrStop() {
+  if (state === "running") { stop(); return; }
+  const s = cur(); if (!s) return;
+  s.code = src.value; save(true);
+  run(src.value, s.name + ".py");
+}
+$("#runBtn").addEventListener("click", runOrStop);
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && e.target !== src) { e.preventDefault(); runOrStop(); }
+  if (e.key === "Escape" && state === "running" && !inputReq) stop();
+});
+
+/* input() */
+function showInput(id, prompt) {
+  inputReq = { id, prompt };
+  setState("running");
+  $("#promptLbl").textContent = prompt;
+  $("#promptLbl").hidden = !prompt;
+  $("#answer").value = "";
+  $("#inbar").hidden = false;
+  stick();
+  setTimeout(() => $("#answer").focus(), 30);
+}
+function replyInput(value, cancel) {
+  const req = inputReq; if (!req) return;
+  inputReq = null;
+  $("#inbar").hidden = true;
+  const ctl = navigator.serviceWorker && navigator.serviceWorker.controller;
+  if (ctl) ctl.postMessage({ type: "input-reply", id: req.id, value, cancel: !!cancel });
+  if (!cancel) {
+    produced = true;
+    const line = document.createElement("div");
+    line.innerHTML = esc(req.prompt) + '<span class="ans">' + esc(value) + "</span>";
+    out.appendChild(line); lastNode = null; stick();
+  }
+  if (state === "running") setState("running");
+}
+$("#inbar").addEventListener("submit", (e) => { e.preventDefault(); replyInput($("#answer").value, false); src.blur(); });
+$("#cancelIn").addEventListener("click", () => replyInput(null, true));
+
+/* ---------- Hauteur visible (clavier iPad) ---------- */
+function fit() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  document.documentElement.style.setProperty("--app-h", h + "px");
+  if (vv && vv.offsetTop) window.scrollTo(0, 0);
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", fit);
+  visualViewport.addEventListener("scroll", fit);
+}
+addEventListener("resize", fit);
+fit();
+
+/* ---------- Démarrage ---------- */
+load();
+setFont(db.fontSize);
+$("#body").classList.toggle("noside", !db.side || narrow());
+open(db.current);
+
+async function setupServiceWorker() {
+  if (!("serviceWorker" in navigator)) return false;
+  try {
+    await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((resolve) => {
+        const t = setTimeout(resolve, 4000);
+        navigator.serviceWorker.addEventListener("controllerchange", () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+    }
+    return !!navigator.serviceWorker.controller;
+  } catch (e) {
+    return false;
+  }
+}
+setupServiceWorker().then((ok) => { inputOK = ok; boot(); });
+}
+</script>
+</body>
+</html>
