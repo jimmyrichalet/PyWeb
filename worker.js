@@ -43,9 +43,33 @@ const SETUP = `
 import sys, os, builtins, traceback, warnings, linecache
 import js
 
-os.environ["MPLBACKEND"] = "AGG"
-warnings.filterwarnings("ignore", message=".*non-interactive.*")
-warnings.filterwarnings("ignore", message=".*FigureCanvasAgg.*")
+os.makedirs("/home/pyodide/pypad", exist_ok=True)
+sys.path.insert(0, "/home/pyodide/pypad")
+with open("/home/pyodide/pypad/pypad_backend.py", "w") as f:
+    f.write('''
+import sys, io, base64, js
+from matplotlib.backend_bases import _Backend
+from matplotlib.backends.backend_agg import _BackendAgg
+
+def flush_figures():
+    import matplotlib.pyplot as plt
+    sys.stdout.flush()
+    sys.stderr.flush()
+    js.pypadFlush()
+    for num in plt.get_fignums():
+        buf = io.BytesIO()
+        plt.figure(num).savefig(buf, format="png", dpi=144, bbox_inches="tight")
+        js.pypadImage(base64.b64encode(buf.getvalue()).decode("ascii"))
+    plt.close("all")
+
+@_Backend.export
+class _BackendPyPad(_BackendAgg):
+    @staticmethod
+    def show(*args, **kwargs):
+        flush_figures()
+''')
+# plt.show() affiche les graphiques tout de suite dans la console
+os.environ["MPLBACKEND"] = "module://pypad_backend"
 
 def _pypad_input(prompt=""):
     sys.stdout.flush()
@@ -58,6 +82,10 @@ def _pypad_input(prompt=""):
 builtins.input = _pypad_input
 
 def _pypad_figures():
+    backend = sys.modules.get("pypad_backend")
+    if backend is not None:
+        backend.flush_figures()
+        return
     plt = sys.modules.get("matplotlib.pyplot")
     if plt is None:
         return

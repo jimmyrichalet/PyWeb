@@ -3,7 +3,7 @@
       que l'on garde en attente jusqu'à ce que la page envoie la réponse de l'élève.
    2. Met l'app et Python en cache pour fonctionner hors ligne après le premier lancement. */
 
-const VERSION = "pypad-v1";
+const VERSION = "pypad-v2";
 const SHELL = [
   "./",
   "./index.html",
